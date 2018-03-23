@@ -16,24 +16,10 @@
 -compile(export_all).
 
 start(Table,TableType) ->
-    Pid=spawn(?MODULE, db1, [[],TableType]),
+    Pid=spawn(?MODULE, db1, [[],{TableType,self()}]),
     io:format("start function--- Table: ~p,Pid:~p~n",[Table,Pid]),
     register(Table, Pid).
 
-
-%%restarter(Table) ->
-%%%%    process_flag(trap_exit,true),
-%%    Pid = spawn_link(?MODULE, db1, [[]]),
-%%    ?assertEqual(true,is_atom(Table)),
-%%    register(Table, Pid),
-%%    receive
-%%        {'EXIT', Pid, normal} ->
-%%            ok;
-%%        {'EXIT', Pid, shutdown} ->
-%%            ok;
-%%        {'EXIT', Pid, _} ->
-%%            false
-%%    end.
 
 insert(Table, Key, Val) ->
     Ref = make_ref(),
@@ -60,26 +46,27 @@ delete(Table, Key) ->
     end.
 
 
-db1(Res,TableType) ->
+db1(Res,{TableType,Owner}) ->
     receive
-        {From, Ref, {insert, {Key, Val}}} ->
+        {Owner, Ref, {insert, {Key, Val}}} ->
             io:format("db1 function--- Key: ~p,Val: ~p, Res:~p~n",[Key,Val,Res]),
             case insert_db(TableType,Key, Val, Res) of
                 false ->
-                    From ! {Ref, false},
-                    db1(Res,TableType);
+                    Owner ! {Ref, false},
+                    db1(Res,{TableType,Owner});
                 Res1 ->
-                    From ! {Ref, ok},
-                    db1(Res1,TableType)
+                    Owner ! {Ref, ok},
+                    db1(Res1,{TableType,Owner})
             end;
-        {From, Ref, {read, Key}} ->
-            From ! {Ref, read_db(TableType,Key, Res)},
-            db1(Res,TableType);
-        {From, Ref, {delete, Key}} ->
-            From ! {Ref, ok},
-            db1(delete_db(TableType,Key, Res),TableType);
-        terminate ->
-            ok
+        {Owner, Ref, {read, Key}} ->
+            Owner ! {Ref, read_db(TableType,Key, Res)},
+            db1(Res,{TableType,Owner});
+        {Owner, Ref, {delete, Key}} ->
+            Owner ! {Ref, ok},
+            db1(delete_db(TableType,Key, Res),{TableType,Owner});
+        {From,Ref,_}->
+            From ! {Ref, {false,"No permission!"}},
+            db1(Res,{TableType,Owner})
     end.
 
 
@@ -167,7 +154,9 @@ test() ->
 
 
 test2()->
-    ?assertEqual({a,s},read(t1,a)).
+    ?assertEqual({false,"No permission!"},read(t1,a)),
+    ?assertEqual({false,"No permission!"},insert(t1,a,2)),
+    ?assertEqual({false,"No permission!"},delete(t1,a)).
 
 test1() ->
     spawn(?MODULE, test2, []).
