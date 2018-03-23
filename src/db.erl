@@ -12,7 +12,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([insert/2,read/2,delete/2,test/0,start/1,db1/1,test1/0]).
+-export([insert/2,read/2,delete/2,test/0,start/1,db1/1,test1/1,test2/1]).
 
 start(Res)->
     spawn(?MODULE,db1,[Res]).
@@ -98,6 +98,14 @@ update_db(Key,Val,[H|Rest])->
 
 test()->
     Pid=start([]),
+    io:format("db Pid:~p~n",[Pid]),
+    Pid1=spawn(?MODULE,test2,[Pid]),
+    Pid2=spawn(?MODULE,test1,[Pid]),
+    [{db,Pid},{test2,Pid1},{test1,Pid2}].
+
+
+
+test2(Pid)->
     ?assertEqual(false,insert(Pid,{'',2})),
     ?assertEqual(false,insert(Pid,{[],2})),
     ?assertEqual(false,insert(Pid,{<<"">>,2})),
@@ -113,8 +121,8 @@ test()->
     ?assertEqual(ok,insert(Pid,{a,s})),
     ?assertEqual({a,s},read(Pid,a)).
 
-
-
-
-test1()->
-    spawn(?MODULE,test1,[]).
+test1(Pid)->
+    timer:sleep(1000),
+    ?assertEqual(ok,insert(Pid,{7,12})),
+    ?assertEqual({7,12},read(Pid,7)),
+    ?assertEqual({a,s},read(Pid,a)).
