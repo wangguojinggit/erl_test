@@ -12,10 +12,11 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([insert/3, read/2, delete/2, test/0, start/1, db1/1, test1/0]).
+-export([insert/3, read/2, delete/2, test/0, start/1, db1/1, test1/0,test2/0]).
 
 start(Table) ->
     Pid=spawn(?MODULE, db1, [[]]),
+    io:format("start function--- Table: ~p,Pid:~p~n",[Table,Pid]),
     register(Table, Pid).
 
 
@@ -61,7 +62,7 @@ delete(Table, Key) ->
 db1(Res) ->
     receive
         {From, Ref, {insert, {Key, Val}}} ->
-            io:format("db1 ~p,~p,~p~n",[Key,Val,Res]),
+            io:format("db1 function--- Key: ~p,Val: ~p, Res:~p~n",[Key,Val,Res]),
             case insert_db(Key, Val, Res) of
                 false ->
                     From ! {Ref, false},
@@ -135,7 +136,8 @@ test() ->
     ?assertEqual({a, s}, read(t1, a)).
 
 
-
+test2()->
+    ?assertEqual({a,s},read(t1,a)).
 
 test1() ->
-    spawn(?MODULE, test1, []).
+    spawn(?MODULE, test2, []).
