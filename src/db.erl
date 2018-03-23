@@ -20,33 +20,67 @@ start(Table, {TableType, Perm}) ->
              private -> {Perm, self()};
              public -> public
          end,
-    Pid = spawn(?MODULE, db1, [[], {TableType,OP }]),
+    Pid = spawn_link(?MODULE, db1, [[], {TableType, OP}]),
     io:format("start function--- Table: ~p,Pid:~p~n", [Table, Pid]),
     register(Table, Pid).
 
 
 insert(Table, Key, Val) ->
-    Ref = make_ref(),
-    Table ! {self(), Ref, {insert, {Key, Val}}},
-    receive
-        {Ref, Msg} ->
-            Msg
+    case whereis(Table) of
+        undefined -> table_no_exist;
+        _ ->
+            Ref = make_ref(),
+            Table ! {self(), Ref, {insert, {Key, Val}}},
+            receive
+                {Ref, Msg} ->
+                    Msg
+            after 1000 ->
+                timeout
+            end
     end.
 
 read(Table, Key) ->
-    Ref = make_ref(),
-    Table ! {self(), Ref, {read, Key}},
-    receive
-        {Ref, Msg} ->
-            Msg
+%%    io:format("read Table:~p,Key:~p,Pid:~p~n",[Table,Key,whereis(Table)]),
+    case whereis(Table) of
+        undefined -> table_no_exist;
+        _ ->
+            Ref = make_ref(),
+            Table ! {self(), Ref, {read, Key}},
+            receive
+                {Ref, Msg} ->
+                    Msg
+            after 1000 ->
+                timeout
+            end
     end.
 
 delete(Table, Key) ->
-    Ref = make_ref(),
-    Table ! {self(), Ref, {delete, Key}},
-    receive
-        {Ref, Msg} ->
-            Msg
+    case whereis(Table) of
+        undefined -> table_no_exist;
+        _ ->
+            Ref = make_ref(),
+            Table ! {self(), Ref, {delete, Key}},
+            receive
+                {Ref, Msg} ->
+                    Msg
+            after 1000 ->
+                timeout
+            end
+    end.
+
+delete_table(Table) ->
+%%    io:format("delete table~n"),
+    case whereis(Table) of
+        undefined -> table_no_exist;
+        _ ->
+            Ref = make_ref(),
+            Table ! {self(), Ref, terminate},
+            receive
+                {Ref, Msg} ->
+                    Msg
+            after 1000 ->
+                timeout
+            end
     end.
 
 
@@ -68,6 +102,9 @@ db1(Res, {TableType, {private, Owner}}) ->
         {Owner, Ref, {delete, Key}} ->
             Owner ! {Ref, ok},
             db1(delete_db(TableType, Key, Res), {TableType, {private, Owner}});
+        {Owner, Ref, terminate} ->
+            Owner ! {Ref, ok},
+            ok;
         {From, Ref, _} ->
             From ! {Ref, {false, "No permission!"}},
             db1(Res, {TableType, {private, Owner}})
@@ -90,6 +127,9 @@ db1(Res, {TableType, public}) ->
         {From, Ref, {delete, Key}} ->
             From ! {Ref, ok},
             db1(delete_db(TableType, Key, Res), {TableType, public});
+        {Owner, Ref, terminate} ->
+            Owner ! {Ref, ok},
+            ok;
         _ ->
             db1(Res, {TableType, public})
     end.
@@ -156,6 +196,10 @@ test() ->
     ?assertEqual(ok, insert(t1, 2, t)),
     ?assertEqual(ok, insert(t1, a, s)),
     ?assertEqual([{a, s}], read(t1, a)),
+    ?assertEqual(ok, delete_table(t1)),
+    ?assertEqual(table_no_exist, read(t1, a)),
+    ?assertEqual(table_no_exist, delete(t1, a)),
+    ?assertEqual(table_no_exist, insert(t1, a, 11)),
 
     start(t2, {bag, public}),
     ?assertEqual([], read(t2, 2)),
