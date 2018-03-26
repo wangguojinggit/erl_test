@@ -1,2 +1,2 @@
 # erl_test
-erlang test program
+erlang Program test
