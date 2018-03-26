@@ -17,30 +17,28 @@
 
 start() ->
     Pid = spawn(?MODULE, tables, [[]]),
-    register(db_tables, Pid).
+    register(pub_tables, Pid).
+
+init() ->
+    _.
 
 
-new_table(Table, {TableType, Perm}) ->
-    case Perm of
-        priv ->
-            Ref = make_ref(),
-            db_tables ! {self(), Ref, {add, {Table, {TableType, {priv, self()}}}}},
-            receive
-                {Ref, Msg} ->
-                    Msg
-            end;
-%%            Pid = spawn(?MODULE, db1, [[], {TableType, {priv, self()}}]),
-%%            io:format("start function--- Table: ~p,Pid:~p~n", [Table, Pid]),
-%%            register(Table, Pid),
-%%            ok;
-        pub ->
-            Ref = make_ref(),
-            db_tables ! {self(), Ref, {add, {Table, {TableType, {pub, self()}}}}},
-            receive
-                {Ref, Msg} ->
-                    Msg
-            end
+new_table(Table, {TableType, priv}) ->
+    Ref = make_ref(),
+    db_tables ! {self(), Ref, {add, {Table, {TableType, {priv, self()}}}}},
+    receive
+        {Ref, Msg} ->
+            Msg
+    end;
+new_table(Table, {TableType, pub}) ->
+    case get_pub(Table) of
+        false ->
+            Pid = spwan(?MODULE, db1, [[], {TableType, pub}]),
+            insert_pub(Table, Pid);
+        _ ->
+            table_exist
     end.
+
 
 gen_name(Name, Type, Pid) ->
     list_to_atom(lists:concat([Name, '$', Type, '$', pid_to_list(Pid)])).
@@ -55,15 +53,20 @@ get_tab_name({Table, Perm}) when Perm == priv;Perm == pub ->
 get_tab_name(_) ->
     undefined.
 
-del_table({Table, Perm}) when Perm == priv;Perm == pub ->
+del_table({Table, priv}) ->
     Ref = make_ref(),
-    db_tables ! {self(), Ref, {del, {Table, Perm, self()}}},
+    db_tables ! {self(), Ref, {del, {Table, priv, self()}}},
     receive
         {Ref, Msg} ->
             Msg
     end;
-del_table(_) ->
-    table_no_exist.
+del_table({Table, pub}) ->
+    case get_pub(Table) of
+        false ->
+            table_no_exist;
+        {Table,Pid} ->
+            delete_pub(Pid)
+    end.
 
 delete_table({Table, Perm}) ->
 %%    io:format("delete table~n"),
@@ -82,6 +85,69 @@ delete_table({Table, Perm}) ->
             end
     end.
 
+get_pub(Tab) ->
+    Ref = make_ref(),
+    pub_tables ! {self(), Ref, {get_pub, Tab}},
+    receive
+        {Ref, Msg} ->
+            Msg
+    end.
+insert_pub(Tab, Pid) ->
+    Ref = make_ref(),
+    pub_tables ! {self(), Ref, {add, {Tab, Pid}}},
+    receive
+        {Ref, Msg} ->
+            Msg
+    end.
+delete_pub(Pid)->
+    Ref = make_ref(),
+    Pid!{self(),Ref,terminate},
+    receive
+        {Ref,Msg}->
+            Msg
+    end.
+
+
+loop_pub_tables(TableList) ->
+    receive
+        {From, Ref, {add, {Table, Pid}}} ->
+            case find_set(Table, TableList) of
+                false ->
+                    From ! {Ref, ok},
+                    loop_pub_tables([{Table, Pid} | TableList]);
+                _ ->
+                    From ! {Ref, table_exist},
+                    loop_pub_tables(TableList)
+            end;
+        {From, Ref, {del, Table}} ->
+            case find_set(Table, TableList) of
+                false ->
+                    From ! {Ref, table_no_exist},
+                    loop_pub_tables(TableList);
+                _ ->
+                    From ! {Ref, ok},
+                    loop_pub_tables(del_set(Table, TableList))
+            end;
+        {From, Ref, {get_pub, Table}} ->
+            From ! {Ref, find_set(Table, TableList)},
+            loop_pub_tables(TableList);
+        _ ->
+            loop_pub_tables(TableList)
+    end.
+
+find_set(_, []) ->
+    false;
+find_set(Key, [{Key, Val} | _]) ->
+    {Key, Val};
+find_set(Key, [_ | Rest]) ->
+    find_set(Key, Rest).
+
+del_set(_, []) ->
+    [];
+del_set(Key, [{Key, _} | Rest]) ->
+    Rest;
+del_set(Key, [H | Rest]) ->
+    [H | del_set(Key, Rest)].
 
 tables(TableList) ->
     receive
@@ -345,11 +411,11 @@ test() ->
     ?assertEqual(table_exist, new_table(t2, {bag, pub})),
     Pid_bag_table1 = spawn(?MODULE, process_test, []),
 
-    ?assertEqual(ok,new_table(t1,{set,pub})),
+    ?assertEqual(ok, new_table(t1, {set, pub})),
     ?assertEqual(ok, insert({t1, pub}, 1, 4)),
     ?assertEqual([{1, 4}], read({t1, pub}, 1)),
-    Pid_pub=spawn(fun()-> ?assertEqual([{1, 4}], read({t1, pub}, 1)) end),
-    io:format("~p,~p,~p,~p,~p~n", [Pid_del_table, Pid_del_table1, Pid_bag_table, Pid_bag_table1,Pid_pub]).
+    Pid_pub = spawn(fun() -> ?assertEqual([{1, 4}], read({t1, pub}, 1)) end),
+    io:format("~p,~p,~p,~p,~p~n", [Pid_del_table, Pid_del_table1, Pid_bag_table, Pid_bag_table1, Pid_pub]).
 
 del_table_test() ->
     ?assertEqual(ok, new_table(t1, {set, priv})),
